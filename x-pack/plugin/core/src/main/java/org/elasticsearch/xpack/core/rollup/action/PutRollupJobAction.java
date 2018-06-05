@@ -25,19 +25,13 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
 
-public class PutRollupJobAction extends Action<PutRollupJobAction.Request, PutRollupJobAction.Response,
-        PutRollupJobAction.RequestBuilder> {
+public class PutRollupJobAction extends Action<PutRollupJobAction.Request, PutRollupJobAction.Response> {
 
     public static final PutRollupJobAction INSTANCE = new PutRollupJobAction();
     public static final String NAME = "cluster:admin/xpack/rollup/put";
 
     private PutRollupJobAction() {
         super(NAME);
-    }
-
-    @Override
-    public RequestBuilder newRequestBuilder(ElasticsearchClient client) {
-        return new RequestBuilder(client, INSTANCE);
     }
 
     @Override
@@ -149,18 +143,6 @@ public class PutRollupJobAction extends Action<PutRollupJobAction.Request, PutRo
 
         public Response(boolean acknowledged) {
             super(acknowledged);
-        }
-
-        @Override
-        public void readFrom(StreamInput in) throws IOException {
-            super.readFrom(in);
-            readAcknowledged(in);
-        }
-
-        @Override
-        public void writeTo(StreamOutput out) throws IOException {
-            super.writeTo(out);
-            writeAcknowledged(out);
         }
     }
 }
