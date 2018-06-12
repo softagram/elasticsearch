@@ -14,11 +14,13 @@ import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.xpack.core.security.authz.RoleDescriptor;
+import org.elasticsearch.xpack.core.security.authz.privilege.ApplicationPrivilege;
 import org.elasticsearch.xpack.core.security.support.MetadataUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -32,10 +34,11 @@ public class PutRoleRequest extends ActionRequest implements WriteRequest<PutRol
     private String name;
     private String[] clusterPrivileges = Strings.EMPTY_ARRAY;
     private List<RoleDescriptor.IndicesPrivileges> indicesPrivileges = new ArrayList<>();
+    private List<RoleDescriptor.ApplicationResourcePrivileges> applicationPrivileges = new ArrayList<>();
     private String[] runAs = Strings.EMPTY_ARRAY;
     private RefreshPolicy refreshPolicy = RefreshPolicy.IMMEDIATE;
     private Map<String, Object> metadata;
-    
+
     public PutRoleRequest() {
     }
 
@@ -45,9 +48,25 @@ public class PutRoleRequest extends ActionRequest implements WriteRequest<PutRol
         if (name == null) {
             validationException = addValidationError("role name is missing", validationException);
         }
+        if(applicationPrivileges != null) {
+            for (RoleDescriptor.ApplicationResourcePrivileges privilege : applicationPrivileges) {
+                try {
+                    ApplicationPrivilege.validateApplicationNameOrWildcard(privilege.getApplication());
+                } catch (IllegalArgumentException e) {
+                    validationException = addValidationError(e.getMessage(), validationException);
+                }
+                for (String name : privilege.getPrivileges()) {
+                    try {
+                        ApplicationPrivilege.validatePrivilegeOrActionName(name);
+                    } catch (IllegalArgumentException e) {
+                        validationException = addValidationError(e.getMessage(), validationException);
+                    }
+                }
+            }
+        }
         if (metadata != null && MetadataUtils.containsReservedMetadata(metadata)) {
             validationException =
-                    addValidationError("metadata keys may not start with [" + MetadataUtils.RESERVED_PREFIX + "]", validationException);
+                addValidationError("metadata keys may not start with [" + MetadataUtils.RESERVED_PREFIX + "]", validationException);
         }
         return validationException;
     }
@@ -73,6 +92,10 @@ public class PutRoleRequest extends ActionRequest implements WriteRequest<PutRol
                 .deniedFields(deniedFields)
                 .query(query)
                 .build());
+    }
+
+    void addApplicationPrivileges(RoleDescriptor.ApplicationResourcePrivileges... privileges) {
+        this.applicationPrivileges.addAll(Arrays.asList(privileges));
     }
 
     public void runAs(String... usernames) {
@@ -151,7 +174,9 @@ public class PutRoleRequest extends ActionRequest implements WriteRequest<PutRol
         return new RoleDescriptor(name,
                 clusterPrivileges,
                 indicesPrivileges.toArray(new RoleDescriptor.IndicesPrivileges[indicesPrivileges.size()]),
+                applicationPrivileges.toArray(new RoleDescriptor.ApplicationResourcePrivileges[applicationPrivileges.size()]),
                 runAs,
-                metadata);
+                metadata,
+                Collections.emptyMap());
     }
 }
