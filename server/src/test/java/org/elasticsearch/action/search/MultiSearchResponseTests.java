@@ -25,6 +25,7 @@ import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.search.internal.InternalSearchResponse;
+import org.elasticsearch.test.AbstractXContentTestCase;
 import org.elasticsearch.test.ESTestCase;
 
 import java.io.IOException;
@@ -33,34 +34,10 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
 
-public class MultiSearchResponseTests extends ESTestCase {
+public class MultiSearchResponseTests extends AbstractXContentTestCase<MultiSearchResponse> {
 
-    public void testFromXContent() throws IOException {
-        for (int runs = 0; runs < 20; runs++) {
-            MultiSearchResponse expected = createTestInstance();
-            XContentType xContentType = randomFrom(XContentType.values());
-            BytesReference shuffled = toShuffledXContent(expected, xContentType, ToXContent.EMPTY_PARAMS, false);
-            XContentParser parser = createParser(XContentFactory.xContent(xContentType), shuffled);
-            MultiSearchResponse actual = MultiSearchResponse.fromXContext(parser);
-            assertThat(parser.nextToken(), nullValue());
-
-            assertThat(actual.getTook(), equalTo(expected.getTook()));
-            assertThat(actual.getResponses().length, equalTo(expected.getResponses().length));
-            for (int i = 0; i < expected.getResponses().length; i++) {
-                MultiSearchResponse.Item expectedItem = expected.getResponses()[i];
-                MultiSearchResponse.Item actualItem = actual.getResponses()[i];
-                if (expectedItem.isFailure()) {
-                    assertThat(actualItem.getResponse(), nullValue());
-                    assertThat(actualItem.getFailureMessage(), containsString(expectedItem.getFailureMessage()));
-                } else {
-                    assertThat(actualItem.getResponse().toString(), equalTo(expectedItem.getResponse().toString()));
-                    assertThat(actualItem.getFailure(), nullValue());
-                }
-            }
-        }
-    }
-
-    private static MultiSearchResponse createTestInstance() {
+    @Override
+    protected MultiSearchResponse createTestInstance() {
         int numItems = randomIntBetween(0, 128);
         MultiSearchResponse.Item[] items = new MultiSearchResponse.Item[numItems];
         for (int i = 0; i < numItems; i++) {
@@ -81,6 +58,38 @@ public class MultiSearchResponseTests extends ESTestCase {
             }
         }
         return new MultiSearchResponse(items, randomNonNegativeLong());
+    }
+
+    @Override
+    protected MultiSearchResponse doParseInstance(XContentParser parser) throws IOException {
+        return MultiSearchResponse.fromXContext(parser);
+    }
+
+    @Override
+    protected void assertEqualInstances(MultiSearchResponse expected, MultiSearchResponse actual) {
+        assertThat(actual.getTook(), equalTo(expected.getTook()));
+        assertThat(actual.getResponses().length, equalTo(expected.getResponses().length));
+        for (int i = 0; i < expected.getResponses().length; i++) {
+            MultiSearchResponse.Item expectedItem = expected.getResponses()[i];
+            MultiSearchResponse.Item actualItem = actual.getResponses()[i];
+            if (expectedItem.isFailure()) {
+                assertThat(actualItem.getResponse(), nullValue());
+                assertThat(actualItem.getFailureMessage(), containsString(expectedItem.getFailureMessage()));
+            } else {
+                assertThat(actualItem.getResponse().toString(), equalTo(expectedItem.getResponse().toString()));
+                assertThat(actualItem.getFailure(), nullValue());
+            }
+        }
+    }
+
+    @Override
+    protected boolean supportsUnknownFields() {
+        return false;
+    }
+
+    @Override
+    protected boolean assertToXContentEquivalence() {
+        return false;
     }
 
 }

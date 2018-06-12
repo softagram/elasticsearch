@@ -62,6 +62,8 @@ import org.elasticsearch.index.rankeval.RankEvalResponse;
 import org.elasticsearch.plugins.spi.NamedXContentProvider;
 import org.elasticsearch.rest.BytesRestResponse;
 import org.elasticsearch.rest.RestStatus;
+import org.elasticsearch.script.mustache.MultiSearchTemplateRequest;
+import org.elasticsearch.script.mustache.MultiSearchTemplateResponse;
 import org.elasticsearch.script.mustache.SearchTemplateRequest;
 import org.elasticsearch.script.mustache.SearchTemplateResponse;
 import org.elasticsearch.search.aggregations.Aggregation;
@@ -909,6 +911,32 @@ public class RestHighLevelClient implements Closeable {
                 emptySet());
     }
 
+        
+    /**
+     * Executes a request using the Multi Search Template API.
+     *
+     * See <a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/multi-search-template.html">Multi Search Template API
+     * on elastic.co</a>.
+     */
+    public final MultiSearchTemplateResponse multiSearchTemplate(MultiSearchTemplateRequest multiSearchTemplateRequest,
+            RequestOptions options) throws IOException {
+        return performRequestAndParseEntity(multiSearchTemplateRequest, RequestConverters::multiSearchTemplate,
+                options, MultiSearchTemplateResponse::fromXContext, emptySet());        
+    }   
+    
+    /**
+     * Asynchronously executes a request using the Multi Search Template API
+     *
+     * See <a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/multi-search-template.html">Multi Search Template API
+     * on elastic.co</a>.
+     */
+    public final void multiSearchTemplateAsync(MultiSearchTemplateRequest multiSearchTemplateRequest,
+                                          RequestOptions options,
+                                          ActionListener<MultiSearchTemplateResponse> listener) {
+        performRequestAsyncAndParseEntity(multiSearchTemplateRequest, RequestConverters::multiSearchTemplate,
+            options, MultiSearchTemplateResponse::fromXContext, listener, emptySet());
+    }    
+
     /**
      * Executes a request using the Ranking Evaluation API.
      *
@@ -1021,10 +1049,10 @@ public class RestHighLevelClient implements Closeable {
                 try {
                     return responseConverter.apply(e.getResponse());
                 } catch (Exception innerException) {
-                    //the exception is ignored as we now try to parse the response as an error.
-                    //this covers cases like get where 404 can either be a valid document not found response,
-                    //or an error for which parsing is completely different. We try to consider the 404 response as a valid one
-                    //first. If parsing of the response breaks, we fall back to parsing it as an error.
+                    // the exception is ignored as we now try to parse the response as an error.
+                    // this covers cases like get where 404 can either be a valid document not found response,
+                    // or an error for which parsing is completely different. We try to consider the 404 response as a valid one
+                    // first. If parsing of the response breaks, we fall back to parsing it as an error.
                     throw parseResponseException(e);
                 }
             }
@@ -1109,10 +1137,10 @@ public class RestHighLevelClient implements Closeable {
                         try {
                             actionListener.onResponse(responseConverter.apply(response));
                         } catch (Exception innerException) {
-                            //the exception is ignored as we now try to parse the response as an error.
-                            //this covers cases like get where 404 can either be a valid document not found response,
-                            //or an error for which parsing is completely different. We try to consider the 404 response as a valid one
-                            //first. If parsing of the response breaks, we fall back to parsing it as an error.
+                            // the exception is ignored as we now try to parse the response as an error.
+                            // this covers cases like get where 404 can either be a valid document not found response,
+                            // or an error for which parsing is completely different. We try to consider the 404 response as a valid one
+                            // first. If parsing of the response breaks, we fall back to parsing it as an error.
                             actionListener.onFailure(parseResponseException(responseException));
                         }
                     } else {

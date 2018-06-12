@@ -32,6 +32,7 @@ The Java High Level REST Client supports the following Search APIs:
 * <<java-rest-high-search-scroll>>
 * <<java-rest-high-clear-scroll>>
 * <<java-rest-high-search-template>>
+* <<java-rest-high-multi-search-template>>
 * <<java-rest-high-multi-search>>
 * <<java-rest-high-field-caps>>
 * <<java-rest-high-rank-eval>>
@@ -40,6 +41,7 @@ include::search/search.asciidoc[]
 include::search/scroll.asciidoc[]
 include::search/multi-search.asciidoc[]
 include::search/search-template.asciidoc[]
+include::search/multi-search-template.asciidoc[]
 include::search/field-caps.asciidoc[]
 include::search/rank-eval.asciidoc[]
 
@@ -80,6 +82,7 @@ Mapping Management::
 Alias Management::
 * <<java-rest-high-update-aliases>>
 * <<java-rest-high-exists-alias>>
+* <<java-rest-high-get-alias>>
 
 include::indices/create_index.asciidoc[]
 include::indices/delete_index.asciidoc[]
@@ -98,9 +101,11 @@ include::indices/put_mapping.asciidoc[]
 include::indices/get_mappings.asciidoc[]
 include::indices/update_aliases.asciidoc[]
 include::indices/exists_alias.asciidoc[]
+include::indices/get_alias.asciidoc[]
 include::indices/put_settings.asciidoc[]
 include::indices/get_settings.asciidoc[]
 include::indices/put_template.asciidoc[]
+include::indices/get_templates.asciidoc[]
 
 == Cluster APIs
 
@@ -140,5 +145,7 @@ include::snapshot/verify_repository.asciidoc[]
 The Java High Level REST Client supports the following Tasks APIs:
 
 * <<java-rest-high-tasks-list>>
+* <<java-rest-high-cluster-cancel-tasks>>
 
 include::tasks/list_tasks.asciidoc[]
+include::tasks/cancel_tasks.asciidoc[]

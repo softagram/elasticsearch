@@ -29,6 +29,7 @@ import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.action.DocWriteRequest;
+import org.elasticsearch.action.admin.cluster.node.tasks.cancel.CancelTasksRequest;
 import org.elasticsearch.action.admin.cluster.node.tasks.list.ListTasksRequest;
 import org.elasticsearch.action.admin.cluster.repositories.delete.DeleteRepositoryRequest;
 import org.elasticsearch.action.admin.cluster.repositories.get.GetRepositoriesRequest;
@@ -54,6 +55,7 @@ import org.elasticsearch.action.admin.indices.settings.get.GetSettingsRequest;
 import org.elasticsearch.action.admin.indices.settings.put.UpdateSettingsRequest;
 import org.elasticsearch.action.admin.indices.shrink.ResizeRequest;
 import org.elasticsearch.action.admin.indices.shrink.ResizeType;
+import org.elasticsearch.action.admin.indices.template.get.GetIndexTemplatesRequest;
 import org.elasticsearch.action.admin.indices.template.put.PutIndexTemplateRequest;
 import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.delete.DeleteRequest;
@@ -89,6 +91,7 @@ import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.VersionType;
 import org.elasticsearch.index.rankeval.RankEvalRequest;
 import org.elasticsearch.rest.action.search.RestSearchAction;
+import org.elasticsearch.script.mustache.MultiSearchTemplateRequest;
 import org.elasticsearch.script.mustache.SearchTemplateRequest;
 import org.elasticsearch.search.fetch.subphase.FetchSourceContext;
 import org.elasticsearch.tasks.TaskId;
@@ -106,6 +109,17 @@ final class RequestConverters {
 
     private RequestConverters() {
         // Contains only status utility methods
+    }
+
+    static Request cancelTasks(CancelTasksRequest cancelTasksRequest) {
+        Request request = new Request(HttpPost.METHOD_NAME, "/_tasks/_cancel");
+        Params params = new Params(request);
+        params.withTimeout(cancelTasksRequest.getTimeout())
+            .withTaskId(cancelTasksRequest.getTaskId())
+            .withNodes(cancelTasksRequest.getNodes())
+            .withParentTaskId(cancelTasksRequest.getParentTaskId())
+            .withActions(cancelTasksRequest.getActions());
+        return request;
     }
 
     static Request delete(DeleteRequest deleteRequest) {
@@ -560,6 +574,21 @@ final class RequestConverters {
         request.setEntity(createEntity(searchTemplateRequest, REQUEST_BODY_CONTENT_TYPE));
         return request;
     }
+    
+    static Request multiSearchTemplate(MultiSearchTemplateRequest multiSearchTemplateRequest) throws IOException {
+        Request request = new Request(HttpPost.METHOD_NAME, "/_msearch/template");
+
+        Params params = new Params(request);
+        params.putParam(RestSearchAction.TYPED_KEYS_PARAM, "true");
+        if (multiSearchTemplateRequest.maxConcurrentSearchRequests() != MultiSearchRequest.MAX_CONCURRENT_SEARCH_REQUESTS_DEFAULT) {
+            params.putParam("max_concurrent_searches", Integer.toString(multiSearchTemplateRequest.maxConcurrentSearchRequests()));
+        }
+
+        XContent xContent = REQUEST_BODY_CONTENT_TYPE.xContent();
+        byte[] source = MultiSearchTemplateRequest.writeMultiLineFormat(multiSearchTemplateRequest, xContent);
+        request.setEntity(new ByteArrayEntity(source, createContentType(xContent.type())));
+        return request;
+    }    
 
     static Request existsAlias(GetAliasesRequest getAliasesRequest) {
         if ((getAliasesRequest.indices() == null || getAliasesRequest.indices().length == 0) &&
@@ -818,6 +847,27 @@ final class RequestConverters {
         return request;
     }
 
+    static Request getAlias(GetAliasesRequest getAliasesRequest) {
+        String[] indices = getAliasesRequest.indices() == null ? Strings.EMPTY_ARRAY : getAliasesRequest.indices();
+        String[] aliases = getAliasesRequest.aliases() == null ? Strings.EMPTY_ARRAY : getAliasesRequest.aliases();
+        String endpoint = endpoint(indices, "_alias", aliases);
+        Request request = new Request(HttpGet.METHOD_NAME, endpoint);
+        Params params = new Params(request);
+        params.withIndicesOptions(getAliasesRequest.indicesOptions());
+        params.withLocal(getAliasesRequest.local());
+        return request;
+    }
+
+    static Request getTemplates(GetIndexTemplatesRequest getIndexTemplatesRequest) throws IOException {
+        String[] names = getIndexTemplatesRequest.names();
+        String endpoint = new EndpointBuilder().addPathPartAsIs("_template").addCommaSeparatedPathParts(names).build();
+        Request request = new Request(HttpGet.METHOD_NAME, endpoint);
+        Params params = new Params(request);
+        params.withLocal(getIndexTemplatesRequest.local());
+        params.withMasterTimeout(getIndexTemplatesRequest.masterNodeTimeout());
+        return request;
+    }
+
     private static HttpEntity createEntity(ToXContent toXContent, XContentType xContentType) throws IOException {
         BytesRef source = XContentHelper.toXContent(toXContent, xContentType, false).toBytesRef();
         return new ByteArrayEntity(source.bytes, source.offset, source.length, createContentType(xContentType));
@@ -1066,6 +1116,13 @@ final class RequestConverters {
         Params withActions(String[] actions) {
             if (actions != null && actions.length > 0) {
                 return putParam("actions", String.join(",", actions));
+            }
+            return this;
+        }
+
+        Params withTaskId(TaskId taskId) {
+            if (taskId != null && taskId.isSet()) {
+                return putParam("task_id", taskId.toString());
             }
             return this;
         }

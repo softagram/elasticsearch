@@ -29,6 +29,7 @@ import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.util.EntityUtils;
 import org.elasticsearch.action.ActionRequestValidationException;
 import org.elasticsearch.action.DocWriteRequest;
+import org.elasticsearch.action.admin.cluster.node.tasks.cancel.CancelTasksRequest;
 import org.elasticsearch.action.admin.cluster.node.tasks.list.ListTasksRequest;
 import org.elasticsearch.action.admin.cluster.repositories.delete.DeleteRepositoryRequest;
 import org.elasticsearch.action.admin.cluster.repositories.get.GetRepositoriesRequest;
@@ -56,6 +57,7 @@ import org.elasticsearch.action.admin.indices.settings.get.GetSettingsRequest;
 import org.elasticsearch.action.admin.indices.settings.put.UpdateSettingsRequest;
 import org.elasticsearch.action.admin.indices.shrink.ResizeRequest;
 import org.elasticsearch.action.admin.indices.shrink.ResizeType;
+import org.elasticsearch.action.admin.indices.template.get.GetIndexTemplatesRequest;
 import org.elasticsearch.action.admin.indices.template.put.PutIndexTemplateRequest;
 import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkShardRequest;
@@ -92,12 +94,12 @@ import org.elasticsearch.common.lucene.uid.Versions;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.ByteSizeUnit;
 import org.elasticsearch.common.unit.TimeValue;
+import org.elasticsearch.common.util.CollectionUtils;
 import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentHelper;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.XContentType;
-import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.index.RandomCreateIndexGenerator;
 import org.elasticsearch.index.VersionType;
 import org.elasticsearch.index.query.TermQueryBuilder;
@@ -107,8 +109,12 @@ import org.elasticsearch.index.rankeval.RankEvalSpec;
 import org.elasticsearch.index.rankeval.RatedRequest;
 import org.elasticsearch.index.rankeval.RestRankEvalAction;
 import org.elasticsearch.repositories.fs.FsRepository;
+import org.elasticsearch.rest.RestRequest;
+import org.elasticsearch.rest.RestRequest.Method;
 import org.elasticsearch.rest.action.search.RestSearchAction;
 import org.elasticsearch.script.ScriptType;
+import org.elasticsearch.script.mustache.MultiSearchTemplateRequest;
+import org.elasticsearch.script.mustache.RestMultiSearchTemplateAction;
 import org.elasticsearch.script.mustache.SearchTemplateRequest;
 import org.elasticsearch.search.Scroll;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
@@ -140,6 +146,7 @@ import java.util.StringJoiner;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import static java.util.Collections.singletonMap;
 import static org.elasticsearch.client.RequestConverters.REQUEST_BODY_CONTENT_TYPE;
@@ -1301,7 +1308,53 @@ public class RequestConvertersTests extends ESTestCase {
         assertEquals(Collections.emptyMap(), request.getParameters());
         assertToXContentBody(searchTemplateRequest, request.getEntity());
     }
+    
+    public void testMultiSearchTemplate() throws Exception {
+        final int numSearchRequests = randomIntBetween(1, 10);
+        MultiSearchTemplateRequest multiSearchTemplateRequest = new MultiSearchTemplateRequest();
+        
+        for (int i = 0; i < numSearchRequests; i++) {
+            // Create a random request.
+            String[] indices = randomIndicesNames(0, 5);
+            SearchRequest searchRequest = new SearchRequest(indices);
+            
+            Map<String, String> expectedParams = new HashMap<>();
+            setRandomSearchParams(searchRequest, expectedParams);
+    
+            // scroll is not supported in the current msearch or msearchtemplate api, so unset it:
+            searchRequest.scroll((Scroll) null);
+            // batched reduce size is currently not set-able on a per-request basis as it is a query string parameter only
+            searchRequest.setBatchedReduceSize(SearchRequest.DEFAULT_BATCHED_REDUCE_SIZE);
+            
+            setRandomIndicesOptions(searchRequest::indicesOptions, searchRequest::indicesOptions, expectedParams);
+            
+            SearchTemplateRequest searchTemplateRequest = new SearchTemplateRequest(searchRequest);
+    
+            searchTemplateRequest.setScript("{\"query\": { \"match\" : { \"{{field}}\" : \"{{value}}\" }}}");
+            searchTemplateRequest.setScriptType(ScriptType.INLINE);
+            searchTemplateRequest.setProfile(randomBoolean());
+    
+            Map<String, Object> scriptParams = new HashMap<>();
+            scriptParams.put("field", "name");
+            scriptParams.put("value", randomAlphaOfLengthBetween(2, 5));
+            searchTemplateRequest.setScriptParams(scriptParams);
+    
+            multiSearchTemplateRequest.add(searchTemplateRequest);            
+        }
 
+        Request multiRequest = RequestConverters.multiSearchTemplate(multiSearchTemplateRequest);
+        
+        assertEquals(HttpPost.METHOD_NAME, multiRequest.getMethod());
+        assertEquals("/_msearch/template", multiRequest.getEndpoint());
+        List<SearchTemplateRequest> searchRequests = multiSearchTemplateRequest.requests();
+        assertEquals(numSearchRequests, searchRequests.size());
+
+        HttpEntity actualEntity = multiRequest.getEntity();
+        byte[] expectedBytes = MultiSearchTemplateRequest.writeMultiLineFormat(multiSearchTemplateRequest, XContentType.JSON.xContent());
+        assertEquals(XContentType.JSON.mediaTypeWithoutParameters(), actualEntity.getContentType().getValue());
+        assertEquals(new BytesArray(expectedBytes), new BytesArray(EntityUtils.toByteArray(actualEntity)));        
+    }
+    
     public void testExistsAlias() {
         GetAliasesRequest getAliasesRequest = new GetAliasesRequest();
         String[] indices = randomBoolean() ? null : randomIndicesNames(0, 5);
@@ -1561,6 +1614,36 @@ public class RequestConvertersTests extends ESTestCase {
         assertEquals(expectedParams, request.getParameters());
     }
 
+    public void testGetAlias() {
+        GetAliasesRequest getAliasesRequest = new GetAliasesRequest();
+
+        Map<String, String> expectedParams = new HashMap<>();
+        setRandomLocal(getAliasesRequest, expectedParams);
+        setRandomIndicesOptions(getAliasesRequest::indicesOptions, getAliasesRequest::indicesOptions, expectedParams);
+
+        String[] indices = randomBoolean() ? null : randomIndicesNames(0, 2);
+        String[] aliases = randomBoolean() ? null : randomIndicesNames(0, 2);
+        getAliasesRequest.indices(indices);
+        getAliasesRequest.aliases(aliases);
+
+        Request request = RequestConverters.getAlias(getAliasesRequest);
+        StringJoiner expectedEndpoint = new StringJoiner("/", "/", "");
+
+        if (false == CollectionUtils.isEmpty(indices)) {
+            expectedEndpoint.add(String.join(",", indices));
+        }
+        expectedEndpoint.add("_alias");
+
+        if (false == CollectionUtils.isEmpty(aliases)) {
+            expectedEndpoint.add(String.join(",", aliases));
+        }
+
+        assertEquals(HttpGet.METHOD_NAME, request.getMethod());
+        assertEquals(expectedEndpoint.toString(), request.getEndpoint());
+        assertEquals(expectedParams, request.getParameters());
+        assertNull(request.getEntity());
+    }
+
     public void testIndexPutSettings() throws IOException {
         String[] indices = randomBoolean() ? null : randomIndicesNames(0, 2);
         UpdateSettingsRequest updateSettingsRequest = new UpdateSettingsRequest(indices);
@@ -1585,6 +1668,23 @@ public class RequestConvertersTests extends ESTestCase {
         assertEquals(HttpPut.METHOD_NAME, request.getMethod());
         assertToXContentBody(updateSettingsRequest, request.getEntity());
         assertEquals(expectedParams, request.getParameters());
+    }
+
+    public void testCancelTasks() {
+        CancelTasksRequest request = new CancelTasksRequest();
+        Map<String, String> expectedParams = new HashMap<>();
+        TaskId taskId = new TaskId(randomAlphaOfLength(5), randomNonNegativeLong());
+        TaskId parentTaskId = new TaskId(randomAlphaOfLength(5), randomNonNegativeLong());
+        request.setTaskId(taskId);
+        request.setParentTaskId(parentTaskId);
+        expectedParams.put("task_id", taskId.toString());
+        expectedParams.put("parent_task_id", parentTaskId.toString());
+        Request httpRequest = RequestConverters.cancelTasks(request);
+        assertThat(httpRequest, notNullValue());
+        assertThat(httpRequest.getMethod(), equalTo(HttpPost.METHOD_NAME));
+        assertThat(httpRequest.getEntity(), nullValue());
+        assertThat(httpRequest.getEndpoint(), equalTo("/_tasks/_cancel"));
+        assertThat(httpRequest.getParameters(), equalTo(expectedParams));
     }
 
     public void testListTasks() {
@@ -1760,6 +1860,24 @@ public class RequestConvertersTests extends ESTestCase {
         assertThat(request.getEndpoint(), equalTo("/_template/" + names.get(putTemplateRequest.name())));
         assertThat(request.getParameters(), equalTo(expectedParams));
         assertToXContentBody(putTemplateRequest, request.getEntity());
+    }
+
+    public void testGetTemplateRequest() throws Exception {
+        Map<String, String> encodes = new HashMap<>();
+        encodes.put("log", "log");
+        encodes.put("1", "1");
+        encodes.put("template#1", "template%231");
+        encodes.put("template-*", "template-*");
+        encodes.put("foo^bar", "foo%5Ebar");
+        List<String> names = randomSubsetOf(1, encodes.keySet());
+        GetIndexTemplatesRequest getTemplatesRequest = new GetIndexTemplatesRequest().names(names.toArray(new String[0]));
+        Map<String, String> expectedParams = new HashMap<>();
+        setRandomMasterTimeout(getTemplatesRequest, expectedParams);
+        setRandomLocal(getTemplatesRequest, expectedParams);
+        Request request = RequestConverters.getTemplates(getTemplatesRequest);
+        assertThat(request.getEndpoint(), equalTo("/_template/" + names.stream().map(encodes::get).collect(Collectors.joining(","))));
+        assertThat(request.getParameters(), equalTo(expectedParams));
+        assertThat(request.getEntity(), nullValue());
     }
 
     private static void assertToXContentBody(ToXContent expectedBody, HttpEntity actualEntity) throws IOException {
@@ -1945,7 +2063,7 @@ public class RequestConvertersTests extends ESTestCase {
             expectedParams.put("preference", searchRequest.preference());
         }
         if (randomBoolean()) {
-            searchRequest.searchType(randomFrom(SearchType.values()));
+            searchRequest.searchType(randomFrom(SearchType.CURRENTLY_SUPPORTED));
         }
         expectedParams.put("search_type", searchRequest.searchType().name().toLowerCase(Locale.ROOT));
         if (randomBoolean()) {
@@ -1970,7 +2088,7 @@ public class RequestConvertersTests extends ESTestCase {
             Map<String, String> expectedParams) {
 
         if (randomBoolean()) {
-            setter.accept(IndicesOptions.fromOptions(randomBoolean(), randomBoolean(), randomBoolean(), randomBoolean()));
+             setter.accept(IndicesOptions.fromOptions(randomBoolean(), randomBoolean(), randomBoolean(), randomBoolean()));
         }
         expectedParams.put("ignore_unavailable", Boolean.toString(getter.get().ignoreUnavailable()));
         expectedParams.put("allow_no_indices", Boolean.toString(getter.get().allowNoIndices()));
