@@ -19,6 +19,8 @@
 
 package org.elasticsearch.client.security.user.privileges;
 
+import org.elasticsearch.common.Strings;
+// dummy change
 import org.elasticsearch.common.xcontent.XContentParser;
 
 import java.io.IOException;
@@ -52,10 +54,16 @@ public class GlobalOperationPrivilege {
      *            The privilege definition.
      */
     public GlobalOperationPrivilege(String category, String operation, Map<String, Object> privilege) {
-        this.category = Objects.requireNonNull(category);
-        this.operation = Objects.requireNonNull(operation);
+        if (Strings.hasText(category) == false) {
+            throw new IllegalArgumentException("category is required");
+        }
+        this.category = category;
+        if (Strings.hasText(operation) == false) {
+            throw new IllegalArgumentException("operation is required");
+        }
+        this.operation = operation;
         if (privilege == null || privilege.isEmpty()) {
-            throw new IllegalArgumentException("Privileges cannot be empty or null");
+            throw new IllegalArgumentException("privileges cannot be empty or null");
         }
         this.privilege = Collections.unmodifiableMap(privilege);
     }
@@ -84,7 +92,7 @@ public class GlobalOperationPrivilege {
         if (this == o) {
             return true;
         }
-        if (o == null || (false == this instanceof GlobalOperationPrivilege)) {
+        if (o == null || (this.getClass() != o.getClass())) {
             return false;
         }
         final GlobalOperationPrivilege that = (GlobalOperationPrivilege) o;
